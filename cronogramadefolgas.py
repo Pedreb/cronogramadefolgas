@@ -153,8 +153,8 @@ CIDADES_PARA = {
     'Mojui dos Campos': {'lat': -2.6824, 'lon': -54.6418},
     'Menbeca': {'lat': -2.2196, 'lon': -54.9899},
     'Barreiras': {'lat': -4.0902, 'lon': -55.6892},
-    'Almeirim':  {'lat': -1.5276090427351592, 'lon':-52.577482130144006},
-    'Rurópolis': {'lat': -4.094116299218916, 'lon':-54.91062274171425}
+    'Almeirim': {'lat': -1.5276090427351592, 'lon': -52.577482130144006},
+    'Rurópolis': {'lat': -4.094116299218916, 'lon': -54.91062274171425}
 }
 
 
@@ -410,40 +410,126 @@ def create_map(df: pd.DataFrame) -> folium.Map:
     return m
 
 
-def main():
-    # Header
-    st.markdown("""
-    <div class="main-header">
-        <h1>🗺️ Sistema de Cronograma de Equipes - Pará</h1>
-        <p>Gestão inteligente de folgas e movimentação das equipes</p>
-    </div>
-    """, unsafe_allow_html=True)
+def show_cronograma_encarregado(analyzer):
+    """Página executiva mostrando cronograma ordenado por proximidade de folga"""
 
-    # Sidebar
-    st.sidebar.title("📋 Menu de Navegação")
-    page = st.sidebar.selectbox(
-        "Selecione a página:",
-        ["🗺️ Mapa das Equipes", "🔍 Auditoria de Folgas", "📊 Relatórios"]
-    )
+    st.header("📋 Cronograma por Encarregado")
 
-    # Carregar dados
-    with st.spinner("Carregando dados do SharePoint..."):
-        connector = SharePointConnector()
-        df = connector.get_data()
+    # Calcular dados para dashboard
+    hoje = datetime.now().date()
+    dados_folgas = []
 
-    if df is None:
-        st.error("❌ Não foi possível carregar os dados. Verifique a conexão com o SharePoint.")
-        st.stop()
+    for _, row in analyzer.df.iterrows():
+        colaborador = row['colaborador']
+        supervisor = row.get('supervisor', 'N/A')
+        destino = row.get('destino', 'N/A')
 
-    analyzer = CronogramaAnalyzer(df)
+        if pd.notna(row.get('inicio')):
+            inicio = row['inicio'].date() if hasattr(row['inicio'], 'date') else row['inicio']
+            termino = row['termino'].date() if hasattr(row['termino'], 'date') else row['termino']
 
+            dias_para_folga = (inicio - hoje).days
+            duracao = (termino - inicio).days + 1
 
-    if page == "🗺️ Mapa das Equipes":
-        show_map_page(analyzer)
-    elif page == "🔍 Auditoria de Folgas":
-        show_audit_page(analyzer)
-    elif page == "📊 Relatórios":
-        show_reports_page(analyzer)
+            # Determinar status
+            if dias_para_folga <= 0:
+                if termino >= hoje:
+                    status = "EM_FOLGA"
+                    status_cor = "🟢"
+                    dias_para_folga = 0
+                else:
+                    status = "ATRASADO"
+                    status_cor = "🔴"
+                    dias_para_folga = abs(dias_para_folga)
+            elif dias_para_folga <= 7:
+                status = "URGENTE"
+                status_cor = "🔴"
+            elif dias_para_folga <= 15:
+                status = "ATENÇÃO"
+                status_cor = "🟡"
+            elif dias_para_folga <= 30:
+                status = "PROGRAMADO"
+                status_cor = "🟢"
+            else:
+                status = "DISTANTE"
+                status_cor = "🔵"
+
+            dados_folgas.append({
+                'colaborador': colaborador,
+                'supervisor': supervisor,
+                'destino': destino,
+                'inicio': inicio,
+                'termino': termino,
+                'dias_para_folga': dias_para_folga,
+                'duracao': duracao,
+                'status': status,
+                'status_cor': status_cor
+            })
+        else:
+            # Sem programação
+            dados_folgas.append({
+                'colaborador': colaborador,
+                'supervisor': supervisor,
+                'destino': 'N/A',
+                'inicio': None,
+                'termino': None,
+                'dias_para_folga': 999,  # Colocar no final
+                'duracao': 0,
+                'status': "SEM_PROGRAMAÇÃO",
+                'status_cor': "⚫"
+            })
+
+    # Ordenar por proximidade de folga
+    dados_folgas = sorted(dados_folgas, key=lambda x: x['dias_para_folga'])
+
+    # TABELA EXECUTIVA
+    st.subheader("📊 Cronograma Detalhado - Ordenado por Urgência")
+
+    if dados_folgas:
+        # Criar DataFrame para exibição
+        df_display = pd.DataFrame([{
+            '👤 COLABORADOR': dado['colaborador'],
+            '🎯 DIAS PARA FOLGA': dado['dias_para_folga'] if dado['dias_para_folga'] != 999 else 'N/A',
+            '📅 INÍCIO': analyzer.format_date_br(dado['inicio']) if dado['inicio'] else 'N/A',
+            '📅 FIM': analyzer.format_date_br(dado['termino']) if dado['termino'] else 'N/A',
+            '⏱️ DURAÇÃO': f"{dado['duracao']} dias" if dado['duracao'] > 0 else 'N/A',
+            '🏙️ DESTINO': dado['destino'],
+            '👨‍💼 SUPERVISOR': dado['supervisor'],
+            '⚡ STATUS': f"{dado['status_cor']} {dado['status']}"
+        } for dado in dados_folgas])
+
+        # Aplicar estilo baseado no status
+        def color_status(val):
+            if '🔴' in str(val):
+                return 'background-color: #ffebee'
+            elif '🟡' in str(val):
+                return 'background-color: #fff8e1'
+            elif '🟢' in str(val):
+                return 'background-color: #e8f5e8'
+            elif '⚫' in str(val):
+                return 'background-color: #f5f5f5'
+            return ''
+
+        # Colorir linha inteira baseado nos dias para folga
+        def highlight_urgency(row):
+            dias = row['🎯 DIAS PARA FOLGA']
+            if dias == 'N/A':
+                return ['background-color: #f8f9fa'] * len(row)
+            elif isinstance(dias, (int, float)) and dias <= 3:
+                return ['background-color: #ffebee'] * len(row)
+            elif isinstance(dias, (int, float)) and dias <= 7:
+                return ['background-color: #fff3e0'] * len(row)
+            else:
+                return [''] * len(row)
+
+        styled_df = df_display.style.apply(highlight_urgency, axis=1) \
+            .applymap(color_status, subset=['⚡ STATUS'])
+
+        st.dataframe(styled_df, use_container_width=True, height=600)
+
+    else:
+        st.warning("Nenhum dado encontrado.")
+
 
 def show_map_page(analyzer):
     st.header("🗺️ Mapa das Equipes")
@@ -707,6 +793,43 @@ def show_reports_page(analyzer):
             file_name=f"cronograma_equipes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
             mime="text/csv"
         )
+
+
+def main():
+    # Header
+    st.markdown("""
+    <div class="main-header">
+        <h1>🗺️ Sistema de Cronograma de Equipes - Pará</h1>
+        <p>Gestão inteligente de folgas e movimentação das equipes</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Sidebar
+    st.sidebar.title("📋 Menu de Navegação")
+    page = st.sidebar.selectbox(
+        "Selecione a página:",
+        ["📋 Cronograma por Encarregado", "🗺️ Mapa das Equipes", "🔍 Auditoria de Folgas", "📊 Relatórios"]
+    )
+
+    # Carregar dados
+    with st.spinner("Carregando dados do SharePoint..."):
+        connector = SharePointConnector()
+        df = connector.get_data()
+
+    if df is None:
+        st.error("❌ Não foi possível carregar os dados. Verifique a conexão com o SharePoint.")
+        st.stop()
+
+    analyzer = CronogramaAnalyzer(df)
+
+    if page == "📋 Cronograma por Encarregado":
+        show_cronograma_encarregado(analyzer)
+    elif page == "🗺️ Mapa das Equipes":
+        show_map_page(analyzer)
+    elif page == "🔍 Auditoria de Folgas":
+        show_audit_page(analyzer)
+    elif page == "📊 Relatórios":
+        show_reports_page(analyzer)
 
 
 if __name__ == "__main__":
