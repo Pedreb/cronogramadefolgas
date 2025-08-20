@@ -413,7 +413,16 @@ def create_map(df: pd.DataFrame) -> folium.Map:
 def show_cronograma_encarregado(analyzer):
     """Página executiva mostrando cronograma ordenado por proximidade de folga"""
 
-    st.header("📋 Cronograma por Encarregado")
+    # Botão de atualização no topo
+    col1, col2 = st.columns([3, 1])
+
+    with col1:
+        st.header("📋 Cronograma por Encarregado")
+
+    with col2:
+        if st.button("🔄 Atualizar Dados", type="primary"):
+            st.cache_data.clear()  # Limpa o cache
+            st.rerun()  # Recarrega a página
 
     # Calcular dados para dashboard
     hoje = datetime.now().date()
