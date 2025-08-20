@@ -416,9 +416,6 @@ def show_cronograma_encarregado(analyzer):
     # Botão de atualização no topo
     col1, col2 = st.columns([3, 1])
 
-    with col1:
-        st.header("📋 Cronograma por Encarregado")
-
     with col2:
         if st.button("🔄 Atualizar Dados", type="primary"):
             st.cache_data.clear()  # Limpa o cache
