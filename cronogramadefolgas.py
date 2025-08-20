@@ -423,10 +423,15 @@ def show_cronograma_encarregado(analyzer):
         colaborador = row['colaborador']
         supervisor = row.get('supervisor', 'N/A')
         destino = row.get('destino', 'N/A')
+        origem = row.get('origem', 'N/A')
 
         if pd.notna(row.get('inicio')):
             inicio = row['inicio'].date() if hasattr(row['inicio'], 'date') else row['inicio']
             termino = row['termino'].date() if hasattr(row['termino'], 'date') else row['termino']
+
+            # Se já voltou da folga (termino < hoje), não incluir na tabela
+            if termino < hoje:
+                continue
 
             dias_para_folga = (inicio - hoje).days
             duracao = (termino - inicio).days + 1
@@ -437,33 +442,38 @@ def show_cronograma_encarregado(analyzer):
                     status = "EM_FOLGA"
                     status_cor = "🟢"
                     dias_para_folga = 0
+                    prioridade = 2  # Em folga tem prioridade 2
                 else:
-                    status = "ATRASADO"
-                    status_cor = "🔴"
-                    dias_para_folga = abs(dias_para_folga)
+                    continue  # Não deveria chegar aqui devido ao filtro acima
             elif dias_para_folga <= 7:
                 status = "URGENTE"
                 status_cor = "🔴"
+                prioridade = 1  # Urgente tem prioridade 1 (mais alta)
             elif dias_para_folga <= 15:
                 status = "ATENÇÃO"
                 status_cor = "🟡"
+                prioridade = 3
             elif dias_para_folga <= 30:
                 status = "PROGRAMADO"
                 status_cor = "🟢"
+                prioridade = 4
             else:
                 status = "DISTANTE"
                 status_cor = "🔵"
+                prioridade = 5
 
             dados_folgas.append({
                 'colaborador': colaborador,
                 'supervisor': supervisor,
                 'destino': destino,
+                'origem': origem,
                 'inicio': inicio,
                 'termino': termino,
                 'dias_para_folga': dias_para_folga,
                 'duracao': duracao,
                 'status': status,
-                'status_cor': status_cor
+                'status_cor': status_cor,
+                'prioridade': prioridade
             })
         else:
             # Sem programação
@@ -471,16 +481,18 @@ def show_cronograma_encarregado(analyzer):
                 'colaborador': colaborador,
                 'supervisor': supervisor,
                 'destino': 'N/A',
+                'origem': origem,
                 'inicio': None,
                 'termino': None,
                 'dias_para_folga': 999,  # Colocar no final
                 'duracao': 0,
                 'status': "SEM_PROGRAMAÇÃO",
-                'status_cor': "⚫"
+                'status_cor': "⚫",
+                'prioridade': 6
             })
 
-    # Ordenar por proximidade de folga
-    dados_folgas = sorted(dados_folgas, key=lambda x: x['dias_para_folga'])
+    # Ordenar por prioridade (urgência) e depois por dias para folga
+    dados_folgas = sorted(dados_folgas, key=lambda x: (x['prioridade'], x['dias_para_folga']))
 
     # TABELA EXECUTIVA
     st.subheader("📊 Cronograma Detalhado - Ordenado por Urgência")
@@ -493,6 +505,7 @@ def show_cronograma_encarregado(analyzer):
             '📅 INÍCIO': analyzer.format_date_br(dado['inicio']) if dado['inicio'] else 'N/A',
             '📅 FIM': analyzer.format_date_br(dado['termino']) if dado['termino'] else 'N/A',
             '⏱️ DURAÇÃO': f"{dado['duracao']} dias" if dado['duracao'] > 0 else 'N/A',
+            '🏠 ORIGEM': dado['origem'],
             '🏙️ DESTINO': dado['destino'],
             '👨‍💼 SUPERVISOR': dado['supervisor'],
             '⚡ STATUS': f"{dado['status_cor']} {dado['status']}"
